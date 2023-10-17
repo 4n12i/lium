@@ -80,11 +80,12 @@ pub fn repo_sync(repo: &str, force: bool) -> Result<()> {
 
     loop {
         println!("Running repo sync...");
-        let mut cmd = Command::new("repo")
+        let repo_sync = format!("repo sync -v -j{}", &num_cpus::get());
+        let mut cmd = Command::new("sh")
             .current_dir(repo)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
-            .args(["sync", "-j", &num_cpus::get().to_string()])
+            .args(["-c", &repo_sync])
             .spawn()
             .context("Failed to execute repo sync")?;
 
