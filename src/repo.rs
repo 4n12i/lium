@@ -5,6 +5,8 @@
 // https://developers.google.com/open-source/licenses/bsd
 
 use std::env;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::path::PathBuf;
 use std::process::exit;
 use std::process::Command;
@@ -15,6 +17,7 @@ use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
 use regex_macro::regex;
+use tracing::info;
 
 use crate::config::Config;
 use crate::util::shell_helpers::get_stdout;
@@ -77,13 +80,34 @@ pub fn repo_sync(repo: &str, force: bool) -> Result<()> {
 
     loop {
         println!("Running repo sync...");
-        let cmd = Command::new("repo")
+        let mut cmd = Command::new("repo")
             .current_dir(repo)
             .stdout(Stdio::piped())
             .stderr(Stdio::piped())
             .args(["sync", "-j", &num_cpus::get().to_string()])
             .spawn()
             .context("Failed to execute repo sync")?;
+
+        let stdout = cmd.stdout.take().unwrap();
+        let stderr = cmd.stderr.take().unwrap();
+        let mut reader_out = BufReader::new(stdout);
+        let mut reader_err = BufReader::new(stderr);
+        let mut buffer_out = Vec::new();
+        let mut buffer_err = Vec::new();
+
+        loop {
+            if cmd.try_wait()?.is_some() {
+                info!("Finish loop.");
+                break;
+            }
+            reader_out.read_until(b'\r', &mut buffer_out).unwrap();
+            reader_err.read_until(b'\r', &mut buffer_err).unwrap();
+            info!("{}", String::from_utf8(buffer_out.clone()).unwrap());
+            info!("{}", String::from_utf8(buffer_err.clone()).unwrap());
+            buffer_out.clear();
+            buffer_err.clear();
+        }
+
         let result = cmd
             .wait_with_output()
             .context("Failed to wait for repo sync")?;
