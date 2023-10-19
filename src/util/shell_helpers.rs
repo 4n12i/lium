@@ -19,6 +19,8 @@ use futures::io::Lines;
 use futures::AsyncBufReadExt;
 use itertools::EitherOrBoth;
 use itertools::Itertools;
+use ptyprocess::PtyProcess;
+use ptyprocess::WaitStatus;
 use tracing::info;
 use tracing::trace;
 use wait_timeout::ChildExt;
@@ -343,4 +345,34 @@ impl Iterator for CommandOutputStdErrReciever {
 
         stderr
     }
+}
+
+pub fn pty_launch_command_with_stdout_label_and_process(
+    program: &str,
+    repo: &str,
+    args: &[&str],
+) -> Result<WaitStatus> {
+    let mut c = Command::new(program);
+    c.current_dir(repo).args(args);
+
+    let process = PtyProcess::spawn(c).unwrap();
+    let mut reader = std::io::BufReader::new(process.get_pty_stream().unwrap());
+    let mut buffer = [0; 1];
+
+    loop {
+        // TODO: Add what to do if it does not exit normally.
+        let n = reader.read(&mut buffer).expect("Error in read.");
+        if n == 0 {
+            break;
+        }
+        let a = format!("ASCII CODE: {:X}", buffer[0]);
+        let cs = std::str::from_utf8(&buffer).unwrap_or(&a);
+        eprint!("{}", cs);
+    }
+
+    let r = process.status().unwrap();
+
+    info!("Subprocess finished with exit code {r:?}");
+
+    Ok(r)
 }

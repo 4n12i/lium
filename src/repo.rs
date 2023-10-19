@@ -5,20 +5,17 @@
 // https://developers.google.com/open-source/licenses/bsd
 
 use std::env;
-use std::io::Read;
 use std::path::PathBuf;
-use std::process::exit;
-use std::process::Command;
-use std::process::Stdio;
 
 use anyhow::anyhow;
 use anyhow::bail;
-use anyhow::Context;
 use anyhow::Result;
+use ptyprocess::WaitStatus;
 use regex_macro::regex;
 
 use crate::config::Config;
 use crate::util::shell_helpers::get_stdout;
+use crate::util::shell_helpers::pty_launch_command_with_stdout_label_and_process;
 use crate::util::shell_helpers::run_bash_command;
 
 /// This tries to get ChromeOS checkout directory in the following order
@@ -74,76 +71,25 @@ pub fn get_current_synced_arc_version(repo: &str) -> Result<String> {
 }
 
 pub fn repo_sync(repo: &str, force: bool) -> Result<()> {
-    let mut last_failed_repos = None;
+    // TODO: Add --force option.
+    println!("Running repo sync...");
+    let cmd_result = pty_launch_command_with_stdout_label_and_process(
+        "repo",
+        repo,
+        &["sync", "-j", &num_cpus::get().to_string()],
+    )?;
 
-    loop {
-        println!("Running repo sync...");
-        let repo_sync = format!("repo sync -v -j{}", &num_cpus::get());
-        let mut cmd = Command::new("sh")
-            .current_dir(repo)
-            .stdout(Stdio::piped())
-            .stderr(Stdio::piped())
-            .args(["-c", &repo_sync])
-            .spawn()
-            .context("Failed to execute repo sync")?;
-
-        let mut char: [u8; 1] = [0];
-        let mut stderr = cmd.stderr.take().unwrap();
-        loop {
-            let n = stderr.read(&mut char).unwrap();
-            if n == 0 {
-                break;
-            }
-            let a = format!("ASCII CODE: {:x}", char[0]);
-            let cs = std::str::from_utf8(&char).unwrap_or(&a);
-            eprint!("{}", cs);
+    match cmd_result {
+        WaitStatus::Exited(_pid, 0) => {
+            println!("repo sync done!")
         }
-
-        let result = cmd
-            .wait_with_output()
-            .context("Failed to wait for repo sync")?;
-        if !result.status.success() {
-            println!("repo sync failed.");
-            let stderr = String::from_utf8_lossy(&result.stderr)
-                .to_string()
-                .trim()
-                .to_string();
-            let it = stderr
-                .split('\n')
-                .skip_while(|e| !e.contains("Failing repos:"));
-            let repos: Vec<String> = it.map(|e| e.to_string()).collect();
-            if repos.is_empty() {
-                println!("{stderr}");
-                bail!("repo sync failed (please check the above message)");
+        _ => {
+            if force {
+                println!("--force option not yet available.");
             }
-            let repos = repos[1..=repos.len() - 2].to_owned();
-            println!("Failed repos: {:?}", &repos);
-            if !force {
-                break;
-            }
-            if Some(&repos) == last_failed_repos.as_ref() {
-                println!("Repo is failing with the same set of the repos, aborting...");
-                exit(1);
-            }
-            for dir in &repos {
-                let cmd = Command::new("rm")
-                    .current_dir(repo)
-                    .args(["-rf", dir])
-                    .spawn()
-                    .context("Failed to execute rm")?;
-                let result = cmd.wait_with_output().context("Failed to wait for rm")?;
-                if result.status.success() {
-                    println!("repo {} was deleted", dir);
-                } else {
-                    bail!("rm exited with {:?}", result.status);
-                }
-            }
-            last_failed_repos = Some(repos.to_owned());
-            continue;
         }
-        break;
     }
-    println!("repo sync done!");
+
     Ok(())
 }
 
