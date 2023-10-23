@@ -16,6 +16,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use regex::Regex;
 use regex_macro::regex;
 
 use crate::config::Config;
@@ -102,8 +103,20 @@ pub fn repo_sync(repo: &str, force: bool) -> Result<()> {
         let split_iter = reader
             .split(b'\r')
             .map(|l| String::from_utf8_lossy(&l.unwrap()).to_string());
+        let re = Regex::new(
+            r"(?P<title>Fetching|Checking out):\s{1,2}(?P<percent>\d{1,3})%\s\((?P<done>\d+)\/(?P<total>\d+)\)",
+        )?;
+
         for a_line in split_iter {
-            print!("{}\r", a_line);
+            match re.captures(&a_line) {
+                Some(caps) => {
+                    println!("TITLE\t{}\r", &caps["title"]);
+                    println!("PERCENT\t{}\r", &caps["percent"]);
+                    println!("DONE\t{}\r", &caps["done"]);
+                    println!("TOTAL\t{}\r", &caps["total"]);
+                }
+                None => println!("{}\r", a_line),
+            }
         }
 
         let result = cmd
