@@ -16,6 +16,7 @@ use anyhow::anyhow;
 use anyhow::bail;
 use anyhow::Context;
 use anyhow::Result;
+use indicatif::ProgressBar;
 use regex::Regex;
 use regex_macro::regex;
 
@@ -107,17 +108,24 @@ pub fn repo_sync(repo: &str, force: bool) -> Result<()> {
             r"(?P<title>Fetching|Checking out):\s{1,2}(?P<percent>\d{1,3})%\s\((?P<done>\d+)\/(?P<total>\d+)\)",
         )?;
 
+        let bar = ProgressBar::new(100);
+        let mut prev: u64 = 0;
+
         for a_line in split_iter {
             match re.captures(&a_line) {
                 Some(caps) => {
-                    println!("TITLE\t{}\r", &caps["title"]);
-                    println!("PERCENT\t{}\r", &caps["percent"]);
-                    println!("DONE\t{}\r", &caps["done"]);
-                    println!("TOTAL\t{}\r", &caps["total"]);
+                    let now = caps["percent"].parse::<u64>()?;
+                    if now == 0 {
+                        bar.reset();
+                    } else {
+                        bar.inc(now - prev);
+                    }
+                    prev = now;
                 }
                 None => println!("{}\r", a_line),
             }
         }
+        bar.finish();
 
         let result = cmd
             .wait_with_output()
