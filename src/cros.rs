@@ -13,6 +13,7 @@ use regex_macro::regex;
 use tracing::info;
 
 use crate::cache::KvCache;
+use crate::config::Config;
 use crate::google_storage;
 use crate::util::shell_helpers::run_bash_command;
 
@@ -65,10 +66,19 @@ fi
 }
 
 pub fn setup_cros_repo(repo: &str, version: &str, reference: &Option<String>) -> Result<()> {
+    let _config = Config::read()?;
+    let is_internal = true;
+
     let url = if version == "tot" {
-        "https://chrome-internal.googlesource.com/chromeos/manifest-internal"
-    } else {
+        if is_internal {
+            "https://chrome-internal.googlesource.com/chromeos/manifest-internal"
+        } else {
+            "https://chromium.googlesource.com/chromiumos/manifest"
+        }
+    } else if is_internal {
         "https://chrome-internal.googlesource.com/chromeos/manifest-versions"
+    } else {
+        "https://chromium.googlesource.com/chromiumos/manifest-versions"
     };
 
     let mut cmd = Command::new("repo");
