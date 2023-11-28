@@ -143,7 +143,10 @@ lazy_static! {
     static ref DUT_ATTRIBUTE_CMDS: HashMap<&'static str, &'static str> = {
         let mut m: HashMap<&'static str, &'static str> = HashMap::new();
         m.insert("board", r"cat /etc/lsb-release | grep CHROMEOS_RELEASE_BOARD | cut -d '=' -f 2 | cut -d '-' -f 1");
+        // NOTE: VM instances do not have a valid HWID
         m.insert("hwid", r"crossystem hwid");
+        // NOTE: If running in a VM, it is true.
+        m.insert("inside_vm", r"crossystem inside_vm");
         m.insert("arch", r"crossystem arch");
         m.insert("serial", r"vpd -g serial_number");
         m.insert("model_from_cros_config", r"cros_config / name");
@@ -179,11 +182,11 @@ lazy_static! {
 const CMD_GET_DEFAULT_IFACE: &str =
     r"ip route get 8.8.8.8 | sed -E 's/^.* dev ([^ ]+) .*$/\1/' | head -n 1";
 
+// NOTE: Remove HWID because VM instances do not have a valid HWID
 // Only keys that are always available can be listed here
-const DEFAULT_DUT_INFO_KEYS: [&str; 8] = [
+const DEFAULT_DUT_INFO_KEYS: [&str; 7] = [
     "timestamp",
     "dut_id",
-    "hwid",
     "release",
     "model",
     "serial",
@@ -327,6 +330,19 @@ impl DutInfo {
                 values.insert("dut_id".to_string(), Ok(dut_id));
             } else {
                 bail!("Failed to get model. {:?}", values.get("model"));
+            }
+        }
+        if keys.contains(&"hwid") {
+            // Check the value of "inside_vm".
+            let is_vm = if let Some(Ok(inside_vm)) = values.get("inside_vm") {
+                inside_vm.parse::<bool>()?
+            } else {
+                bail!("Failed to check if this system is in VM");
+            };
+
+            // If true, generate new key "betty_{SERIAL_NUMBER}".
+            if is_vm {
+                println!("Generating a key...")
             }
         }
         // Collect all values for given keys
