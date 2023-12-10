@@ -80,6 +80,18 @@ pub fn get_current_synced_arc_version(repo: &str) -> Result<String> {
     Ok(get_stdout(&output))
 }
 
+pub fn get_reference_repo(reference: &Option<String>) -> Result<Option<String>> {
+    let default = Config::read()?.default_cros_reference();
+
+    if let Some(reference) = reference {
+        return Ok(Some(reference.to_string()));
+    } else if let Some(default) = default {
+        return Ok(Some(default));
+    }
+
+    Ok(None)
+}
+
 pub fn repo_sync(repo: &str, force: bool, verbose: bool) -> Result<()> {
     let mut last_failed_repos = None;
 
