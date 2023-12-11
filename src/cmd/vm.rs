@@ -5,8 +5,11 @@
 // https://developers.google.com/open-source/licenses/bsd
 
 use std::env;
+use std::io::BufRead;
+use std::io::BufReader;
 use std::path::Path;
 use std::process::Command;
+use std::process::Stdio;
 use std::string::ToString;
 
 use anyhow::anyhow;
@@ -16,11 +19,17 @@ use anyhow::Result;
 use argh::FromArgs;
 use lium::config::Config;
 use lium::util::shell_helpers::run_bash_command;
+use once_cell::sync::Lazy;
 use regex_macro::regex;
+use regex_macro::Regex;
 use strum_macros::Display;
 use tracing::error;
 use tracing::info;
 use whoami;
+
+static RE_BUILD_ID: Lazy<&Regex> = Lazy::new(|| regex!(r"^\d+$"));
+static RE_ACLOUDW_PORT: Lazy<&Regex> =
+    Lazy::new(|| regex!(r"^ - device serial: 127.0.0.1:(?P<port>\d{5})"));
 
 #[derive(FromArgs, PartialEq, Debug)]
 /// create a virtual machine
@@ -257,8 +266,7 @@ fn run_acloudw(args: &ArgsStart) -> Result<()> {
         .build_id
         .clone()
         .ok_or(anyhow!("--build-id option is required when using acloudw"))?;
-    let re = regex!(r"^\d+$");
-    if !re.is_match(&build_id) {
+    if !RE_BUILD_ID.is_match(&build_id) {
         bail!("--build-id must be a digit.");
     }
 
@@ -372,10 +380,33 @@ fn run_acloudw_cmd(opts: &[&str]) -> Result<()> {
     let acloudw_cmd = opts.join(" ");
     info!("Running `{acloudw_cmd}`...");
     let mut cmd = Command::new("bash")
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
         .arg("-c")
         .arg(acloudw_cmd)
         .spawn()
         .context("Failed to execute acloudw")?;
+
+    let buf_reader = BufReader::new(cmd.stdout.take().context("error")?);
+
+    // let output = String::from_utf8_lossy(buf_reader.buffer());
+    // let capture = RE_ACLOUDW_PORT.captures(&output).context("Failed to get
+    // acloudw port number")?; info!("PORT >> {}", &capture["port"]);
+
+    let split_iter = buf_reader
+        .split(b'\n')
+        .map(|l| String::from_utf8_lossy(&l.unwrap()).to_string());
+
+    for a_line in split_iter {
+        println!("{a_line}");
+
+        if let Some(caps) = RE_ACLOUDW_PORT.captures(&a_line) {
+            info!("{}", caps["port"].to_string());
+        }
+    }
+
+    // info!("If you want to connect to an instance, please run `lium dut shell
+    // --dut 127.0.0.1:{port}`");
 
     let result = cmd.wait().context("Failed to wait for acloudw")?;
 
@@ -445,4 +476,33 @@ fn run_betty_cmd(dir: &str, cmd: SubCommand, opts: &[&str]) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    #[test]
+    fn regex() {
+        assert_eq!(
+            &RE_ACLOUDW_PORT
+                .captures(" - device serial: 127.0.0.1:12345")
+                .unwrap()["port"],
+            "12345"
+        );
+        assert_eq!(
+            &RE_ACLOUDW_PORT
+                .captures(" - device serial: 127.0.0.1:12345 (serial_number)")
+                .unwrap()["port"],
+            "12345"
+        );
+        assert!(&RE_ACLOUDW_PORT
+            .captures(" - device serial: 127.0.0.1:1234a")
+            .is_none());
+        assert!(&RE_ACLOUDW_PORT
+            .captures(" - device serial: 127.0.0.1:a1234")
+            .is_none());
+        assert!(&RE_ACLOUDW_PORT
+            .captures(" - device serial: 127.0.0.1:12-45")
+            .is_none());
+    }
 }
