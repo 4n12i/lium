@@ -9,6 +9,7 @@ use argh::FromArgs;
 
 pub mod arc;
 pub mod board;
+pub mod branch;
 pub mod build;
 pub mod chroot;
 pub mod cl;
@@ -45,6 +46,7 @@ pub struct TopLevel {
 pub enum Args {
     Arc(arc::Args),
     Board(board::Args),
+    Branch(branch::Args),
     Build(build::Args),
     Cl(cl::Args),
     Chroot(chroot::Args),
@@ -66,6 +68,7 @@ pub fn run(args: &TopLevel) -> Result<()> {
     match &args.nested {
         Args::Arc(args) => arc::run(args),
         Args::Board(args) => board::run(args),
+        Args::Branch(args) => branch::run(args),
         Args::Build(args) => build::run(args),
         Args::Cl(args) => cl::run(args),
         Args::Chroot(args) => chroot::run(args),
